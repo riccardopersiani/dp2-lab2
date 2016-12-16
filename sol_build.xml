@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project basedir="." name="auto-gen classes">
+	<description>
+			Script for NFFG Assignment 2 Artifacts generation
+	</description>
+	
+	<!-- define wjc task (WADL to Java) -->
+	<taskdef name="wjc" classname="org.jvnet.ws.wadl2java.WJCTask">
+	   <classpath>
+	   	<fileset dir="${lib.dir}" includes="*.jar" />
+	   </classpath>
+	</taskdef>
+	
+	<!-- define the client artifacts generation target -->
+	<target name="generate-artifacts">
+		<mkdir dir="${gen.dir}" />
+	   	<echo message="Compiling the descriptions..." />
+	   	<wjc description="${WADL}" package="it.polito.dp2.NFFG.sol2"
+	       autoSchemaPackage="false" target="${gen.dir}">
+	     <customizations dir="${lab2.location}" includes="binding.xjc"/>
+	     <produces dir="${gen.dir}/it/polito/dp2/NFFG/sol2" includes="*.java"/>
+	     <depends dir="${root.location}" includes="build.xml"/>
+	    </wjc>
+	</target>
+	
+</project>
