@@ -11,6 +11,7 @@ import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
 
 import it.polito.dp2.NFFG.LinkReader;
 import it.polito.dp2.NFFG.NffgReader;
@@ -24,7 +25,6 @@ import it.polito.dp2.NFFG.lab2.UnknownNameException;
 
 
 public class MyReachabilityTester implements ReachabilityTester {	
-	//Settare proprietà URL...
 	private WebTarget target;
 	private Set<NodeReader> nodeSet;  
 	private Map<NodeReader,String> mapNodeReaderId; 
@@ -32,55 +32,51 @@ public class MyReachabilityTester implements ReachabilityTester {
 	private String nffgName;
 
 	//TODO costructor?
-	/*public void MyReachabilityTester(){
-		System.out.println("-----------CONSTRUCTOR-----------");
-		// For each Node send a request to the Server
-		nodeSet = new HashSet<>();
-		linkId = new HashSet<>();
-		mapNodeReaderId = new HashMap<>();
-	}*/
+	public MyReachabilityTester(){
+		this.nodeSet = new HashSet<>();
+		this.linkId = new HashSet<>();
+		this.mapNodeReaderId = new HashMap<>();
+	}
 
 	/* Carica su Node4J l'element NFFG con il nome inserito */
 	@Override
 	public void loadNFFG(String name) throws UnknownNameException, ServiceException {
-		/* Questo NFFG da caricare dove si trova? E' uno di quelli generato dinamicamente dalla libreria di Sisto */
-		/* Vado a prendere l'emento NFFG inserito */
 		NffgVerifier monitor;
 		it.polito.dp2.NFFG.NffgVerifierFactory factory = it.polito.dp2.NFFG.NffgVerifierFactory.newInstance();
 		try {
-			System.out.println("Instantiating the client...in loadNFFG()");
+			System.out.println("**** Instantiating the client...in loadNFFG() ****");
 			Client c = ClientBuilder.newClient();	
 			if(System.getProperty("it.polito.dp2.NFFG.lab2.URL") == null){
+				System.err.println("Property is null... launching ServiceException");
 				throw new ServiceException();
 			}
 			target = c.target(System.getProperty("it.polito.dp2.NFFG.lab2.URL"));		
 
 			this.nffgName = null;
 
-			/* Prima devo cancellare in nodi inseriti in precedenza */
+			/* Prima devo cancellare in nodi inseriti in precedenza e controllo che neo4j sia stato lanciato */
 			System.out.println("Deleting nodes...");
 			deleteNodes();
-			
-			nodeSet = new HashSet<>();
-			linkId = new HashSet<>();
-			mapNodeReaderId = new HashMap<>();
 
 			monitor = factory.newNffgVerifier();
 			System.out.println("Getting the nffg...");
+			
+			System.out.println("nffg name inserted in LoadNFFG(): "+ monitor.getNffg(name));
+
+			
 			if(monitor.getNffg(name) == null){
-				System.out.println("Wrong nffg name...launching UnknownNameException");
+				System.err.println("Wrong nffg name...launching UnknownNameException");
 				throw new UnknownNameException();
 			}
+			
 			NffgReader nffg = monitor.getNffg(name);	
-			System.out.println("nffg Name: "+nffg.getName());
+			System.out.println("nffg Name: "+ nffg.getName());
 			this.nffgName = nffg.getName();
 
-			System.out.println("Getting nodes from the nffg...");
-			nodeSet = nffg.getNodes();
+			this.nodeSet = nffg.getNodes();
 
-			int count2=0;
+			/* Getting Nodes form the nffg*/
 			for (NodeReader nr: nodeSet) {
-				count2++;
 				Node node = new ObjectFactory().createNode();
 				Property property = new ObjectFactory().createProperty();
 
@@ -91,22 +87,21 @@ public class MyReachabilityTester implements ReachabilityTester {
 				Node response = target.path("resource")
 						.path("node")
 						.request(MediaType.APPLICATION_XML)
-						.post(Entity.entity(node, MediaType.APPLICATION_XML),Node.class);
+						.post(Entity.entity(node, MediaType.APPLICATION_XML), Node.class);
 
-				System.out.println("Node id  "+ response.getId()+ " "+count2);
-				mapNodeReaderId.put(nr, response.getId());
+				// System.out.println("Node id  "+ response.getId() + " ");
+				if(response.getId() == null){
+					System.err.println("Node id is null");
+					throw new ServiceException();
+				}
+				this.mapNodeReaderId.put(nr, response.getId());
 			}
 
-
-			System.out.println("Getting links from the nffg...");
-			int count=0;
-			int count3=0;
+			/* Getting Links from the nffg*/
 			for(NodeReader nr: nodeSet) {
-				count ++;
-				System.out.println("Node:  "+ nr.getName()+" "+count);
+				// System.out.println("Node:  "+ nr.getName());
 				for(LinkReader lr: nr.getLinks()) {
-					count3++;
-					System.out.println("Link:  "+ lr.getName()+" "+count3);
+					// System.out.println("Link:  "+ lr.getName());
 					Path path = new ObjectFactory().createPath();
 					Relationship relationship = new ObjectFactory().createRelationship();
 
@@ -122,16 +117,20 @@ public class MyReachabilityTester implements ReachabilityTester {
 							.request(MediaType.APPLICATION_XML)
 							.post(Entity.entity(relationship, MediaType.APPLICATION_XML), Relationship.class);
 
-					//System.out.println("Link id  "+ response.getId());
-					linkId.add(response.getId());
+					// System.out.println("Link id  "+ response.getId());
+					if(response.getId() == null){
+						System.err.println("Relationship id is null");
+						throw new ServiceException();
+					}
+					this.linkId.add(response.getId());
 				}
 			}
-			System.out.println("All nodes controlled...");	
+			
 		} catch (NffgVerifierException e) {
-			System.out.println("INSIDE LOAD CATCH...");	
+			System.err.println("NffgVerifierException occurred... launching ServiceException");	
 			throw new ServiceException();
 		} catch (RuntimeException e){
-			System.out.println("RuntimeException...");	
+			System.out.println("RuntimeException occurred... launhching ServiceException");	
 			throw new ServiceException();
 		}
 	}
@@ -140,47 +139,40 @@ public class MyReachabilityTester implements ReachabilityTester {
 	public boolean testReachability(String srcName, String destName)
 			throws UnknownNameException, ServiceException, NoGraphException {
 		try{
-			/* true if the destination node is reachable from the source node, false otherwise */
-			System.out.println("Instantiating the client...in testReachability()");
+			/* True if the destination node is reachable from the source node, false otherwise */
+			System.out.println("**** Instantiating the client...in testReachability() ****");
 			Client c = ClientBuilder.newClient();	
 			if(System.getProperty("it.polito.dp2.NFFG.lab2.URL") == null){
-				System.out.println("Instantiating the client...in testReachability() FAILED!!!");
+				System.err.println("Property is null... launching ServiceException");
 				throw new ServiceException();
 			}
-			System.out.println("Instantiating the target...in testReachability()");
 			target = c.target(System.getProperty("it.polito.dp2.NFFG.lab2.URL"));		
 
-
-			System.out.println("srcName: " + srcName);
-			System.out.println("destName: " + destName);
-
-			System.out.println("Controlling if srcName or destName are empty...");
+			/* Check if srcName or destName are empty...*/
 			if(srcName.isEmpty() || destName.isEmpty()){
-				System.out.println("Source or Destination are missing...launching UnknownNameException");
+				System.err.println("Source or Destination passed are empty... launching UnknownNameException");
 				throw new UnknownNameException();
 			}
 
-			System.out.println("Controlling if srcName or destname are good...");
+			/* Check if srcName or destName exist...*/
 			int flag = 0;
 			for (NodeReader nr: nodeSet){
 				if(nr.getName().equals(srcName)){
-					System.out.println("FLAG1");
 					flag++;
 				}
 				if(nr.getName().equals(destName)){
-					System.out.println("FLAG2");
 					flag++;
 				}
 			}
-			if(flag!=2){
-				System.out.println("Src or dst flags are missing...launching UnknownNameException");
+			if (flag != 2){
+				System.err.println("Source or Destination passed does not exist... launching UnknownNameException");
 				throw new UnknownNameException();
 			}
 
 			String destId = null;
 			String srcId = null;
 
-			System.out.println("finding the ids from src and dst...");
+			/* Saving Src and Dest Ids*/
 			for ( NodeReader key : mapNodeReaderId.keySet() ) {
 				if(key.getName().equals(srcName)){
 					srcId = mapNodeReaderId.get(key); 
@@ -190,15 +182,24 @@ public class MyReachabilityTester implements ReachabilityTester {
 				}
 			}
 
-			System.out.println("srcId: " + srcId);
-			System.out.println("destId: " + destId);
-
-			System.out.println("Checking if ids are null...");
+			/* Checking if Ids are null */
 			if( srcId == null || destId == null){
-				System.out.println("srcId or destId are not right bacause of unknown srcName or destName...");
+				System.err.println("Src or Dest Ids are null... launching ServiceException");
 				throw new ServiceException();
 			}
-
+			
+			/* Check if a graph is loaded */
+			Nodes nodes_response = target.path("resource")
+					.path("nodes")
+					.request()
+					.get(Nodes.class);
+			
+			if(nodes_response.getNode().isEmpty() == true){
+				System.err.println("No graph is currently loaded... launching NoGraphException");
+				throw new NoGraphException();
+			}
+						
+			/* Check if the policy is reachable */
 			System.out.println("Performing the get(Paths)...");
 			Paths response = target.path("resource")
 					.path("node")
@@ -208,37 +209,45 @@ public class MyReachabilityTester implements ReachabilityTester {
 					.request()
 					.get(Paths.class);
 
-			System.out.println("Paths Response...");
 			List<Path> pathList = response.getPath();
-			System.out.println("Check if empty...");
 			if(!pathList.isEmpty()){
-				System.out.println("NOT empty...");
 				return true;
 			}
-
-			System.out.println("EMPTY...");
 			return false;
 
 		}catch(RuntimeException r){
-			System.out.println("--- Throwable exception in TEST REACHABILITY --- \n");
+			System.err.println("RuntimeException in testReachability()");
 			throw new ServiceException();
 		}
 	}
 
 	@Override
 	public String getCurrentGraphName() {
-		System.out.println("***NFFG NAME: "+nffgName+" ****");
+		System.out.println("getCurrentGraphName(): " + nffgName);
+		if(nffgName == null){
+			return null;
+		}
 		return nffgName;
 	}
 
-	public void deleteNodes() throws ServiceException{
+	public void deleteNodes() throws ServiceException {
 		try{
-			target.path("resource")
-			.path("nodes")
-			.request(MediaType.APPLICATION_XML)
-			.delete();
+			/* Perform the delete request to neo4J */
+			Response response = target.path("resource")
+					.path("nodes")
+					.request(MediaType.APPLICATION_XML)
+					.delete();
+
+			System.out.println("Response Status Number: " + response.getStatus());
+			
+			/* If an error occurs launch ServiceException */
+			if(response.getStatus() > 400 ){
+				System.err.println("Response status > 400! Neo4J could be not active!");
+				throw new ServiceException();
+			}
+			
 		} catch (RuntimeException e) {
-			System.out.println("--- Throwable exception --- \n");
+			System.err.println("RuntimeException in deleteNodes()");
 			throw new ServiceException();
 		}
 	}
